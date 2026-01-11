@@ -339,50 +339,42 @@
                         </form>
                     </div>
                     <script>
-                        document.getElementById('beta-signup-form').addEventListener('submit', async function(e) {
+                        const form = document.getElementById('beta-signup-form');
+                        const submitBtn = form.querySelector('button[type="submit"]');
+                        const messageEl = document.getElementById('form-message');
+
+                        form.addEventListener('submit', async (e) => {
                             e.preventDefault();
-                            const email = document.getElementById('email-address').value;
-                            const messageEl = document.getElementById('form-message');
-                            const submitBtn = this.querySelector('button[type="submit"]');
-                            
+
+                            const formData = new FormData(form);
+                            formData.append("access_key", "28dc2b76-114e-4b78-a007-4cbb38eb63ce");
+
+                            const originalText = submitBtn.textContent;
+                            submitBtn.textContent = "Sending...";
+                            submitBtn.disabled = true;
+
                             try {
-                                submitBtn.disabled = true;
-                                submitBtn.textContent = 'Sending...';
-                                
-                                // Try the local API first, fall back to mock
-                                const response = await fetch('/api/beta-signup', {
-                                    method: 'POST',
-                                    headers: {
-                                        'Content-Type': 'application/json'
-                                    },
-                                    body: JSON.stringify({ email })
-                                }).catch(() => {
-                                    // Fallback for static hosting - just mock the response
-                                    return { ok: true, json: () => Promise.resolve({ 
-                                        status: 'success',
-                                        message: 'Thank you for signing up! We will be in touch shortly.'
-                                    })};
+                                const response = await fetch("https://api.web3forms.com/submit", {
+                                    method: "POST",
+                                    body: formData
                                 });
-                                
+
                                 const data = await response.json();
-                                
-                                if (response.ok || data.status === 'success') {
+
+                                if (response.ok) {
                                     messageEl.textContent = '✓ Thank you! Check your email for next steps.';
                                     messageEl.className = 'mt-3 text-sm text-green-400';
-                                    document.getElementById('email-address').value = '';
-                                    submitBtn.textContent = 'Get Early Access';
-                                    submitBtn.disabled = false;
+                                    form.reset();
                                 } else {
-                                    messageEl.textContent = '✗ Error: ' + (data.detail || 'Please try again');
+                                    messageEl.textContent = '✗ Error: ' + (data.message || 'Please try again');
                                     messageEl.className = 'mt-3 text-sm text-red-400';
-                                    submitBtn.textContent = 'Get Early Access';
-                                    submitBtn.disabled = false;
                                 }
                             } catch (error) {
                                 messageEl.textContent = '✓ Thank you! We will be in touch shortly.';
                                 messageEl.className = 'mt-3 text-sm text-green-400';
-                                document.getElementById('email-address').value = '';
-                                submitBtn.textContent = 'Get Early Access';
+                                form.reset();
+                            } finally {
+                                submitBtn.textContent = originalText;
                                 submitBtn.disabled = false;
                             }
                         });
