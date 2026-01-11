@@ -1,6 +1,6 @@
-# AI Alert Triage Co-Pilot - Design Styleguide
+# Gnostyx - Design Styleguide
 
-This styleguide documents the design tokens, color palette, and UI components used in the AI Alert Triage Co-Pilot landing page.
+This styleguide documents the design tokens, color palette, and UI components used in the Gnostyx landing page.
 
 ## Design Philosophy
 - **Theme:** Dark, Technical, "Cybersecurity SaaS"
