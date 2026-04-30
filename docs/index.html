@@ -942,15 +942,19 @@
             const fte        = Math.max(0, parseFloat(document.getElementById('calc-fte').value)    || 0);
             const rate       = Math.max(0, parseFloat(document.getElementById('calc-rate').value)   || 0);
 
-            const monthlyAlerts    = alertsDay * 30;
-            const noiseAlerts      = monthlyAlerts * NOISE_RATE;
-            const hoursWasted      = (noiseAlerts * AVG_TRIAGE_MIN) / 60;
+            // Hours needed to manually triage every alert at 7 min each
+            const alertTriageHrsNeeded = (alertsDay * 30 * AVG_TRIAGE_MIN) / 60;
+            // Actual analyst capacity — they can't work more hours than they have
             const teamCapacityHrs  = fte * WORK_HRS_DAY * WORK_DAYS_MO;
-            const capacityPct      = teamCapacityHrs > 0 ? Math.min(100, (hoursWasted / teamCapacityHrs) * 100) : 0;
-            const moneywaste       = hoursWasted * rate;
+            // Triage actually performed is bounded by the smaller of the two
+            const actualTriageHrs  = Math.min(alertTriageHrsNeeded, teamCapacityHrs);
+            // 70% of those triage hours are noise
+            const noiseHours       = actualTriageHrs * NOISE_RATE;
+            const capacityPct      = teamCapacityHrs > 0 ? (noiseHours / teamCapacityHrs) * 100 : 0;
+            const moneywaste       = noiseHours * rate;
 
             document.getElementById('res-cost').textContent  = fmt(moneywaste);
-            document.getElementById('res-hours').textContent = Math.round(hoursWasted).toLocaleString();
+            document.getElementById('res-hours').textContent = Math.round(noiseHours).toLocaleString();
             document.getElementById('res-pct').textContent   = capacityPct.toFixed(1) + '%';
         }
 
