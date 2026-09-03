@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gnostyx — Alert Triage Walkthrough</title>
+<meta name="description" content="See how Gnostyx triages a raw alert stream in real time — sorting the noise from the handful of things an analyst actually needs to see.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0B0F16;
+    --panel:#111826;
+    --panel-2:#0E1420;
+    --border:#212A3C;
+    --text:#E7ECF6;
+    --text-dim:#8993A8;
+    --text-faint:#525D73;
+    --quiet:#5A6884;
+    --amber:#DB9A44;
+    --amber-dim:rgba(219,154,68,0.10);
+    --teal:#5FC1A0;
+    --radius:10px;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:'Inter',sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .container{
+    max-width:880px;
+    margin:0 auto;
+    padding:64px 24px 96px;
+  }
+  .brand-bar{ margin-bottom:36px; }
+  .brand-bar a{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:13px;
+    letter-spacing:.18em;
+    color:var(--text-faint);
+    text-decoration:none;
+    transition:color .15s ease;
+  }
+  .brand-bar a:hover{ color:var(--text-dim); }
+  .eyebrow{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    letter-spacing:.1em;
+    text-transform:uppercase;
+    color:var(--text-faint);
+    border:1px solid var(--border);
+    display:inline-block;
+    padding:6px 12px;
+    border-radius:999px;
+    margin-bottom:28px;
+  }
+  h1{
+    font-family:'Space Grotesk',sans-serif;
+    font-weight:600;
+    font-size:clamp(30px,5vw,46px);
+    line-height:1.1;
+    letter-spacing:-0.01em;
+    margin:0 0 14px;
+  }
+  .subhead{
+    font-size:17px;
+    color:var(--text-dim);
+    max-width:50ch;
+    line-height:1.55;
+    margin:0 0 48px;
+  }
+  .panel{
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    padding:28px;
+    margin-bottom:20px;
+  }
+  .ledger-head{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    flex-wrap:wrap;
+    gap:16px;
+    margin-bottom:22px;
+    padding-bottom:20px;
+    border-bottom:1px solid var(--border);
+  }
+  .counter-group{ display:flex; gap:32px; flex-wrap:wrap; }
+  .counter .n{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:26px;
+    font-weight:600;
+    color:var(--text);
+    line-height:1;
+  }
+  .counter.escalated .n{ color:var(--amber); }
+  .counter .l{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:10px;
+    text-transform:uppercase;
+    letter-spacing:.08em;
+    color:var(--text-faint);
+    margin-top:6px;
+  }
+  .replay-btn{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:12px;
+    background:transparent;
+    border:1px solid var(--border);
+    color:var(--text-dim);
+    padding:9px 16px;
+    border-radius:6px;
+    cursor:pointer;
+    transition:border-color .15s, color .15s;
+  }
+  .replay-btn:hover{ border-color:var(--quiet); color:var(--text); }
+
+  .ledger{ display:flex; flex-direction:column; gap:8px; }
+  .row{
+    display:grid;
+    grid-template-columns:1fr auto;
+    gap:16px;
+    align-items:center;
+    padding:14px 16px;
+    border:1px solid var(--border);
+    border-left:3px solid transparent;
+    border-radius:8px;
+    background:var(--panel-2);
+    opacity:0;
+    transform:translateY(6px);
+    transition:opacity .4s ease, transform .4s ease, border-color .3s ease, background-color .3s ease;
+  }
+  .row.show{ opacity:1; transform:translateY(0); }
+  .row.resolved-suppressed{ opacity:.5; border-left-color:var(--quiet); }
+  .row.resolved-escalated{ border-left-color:var(--amber); background:rgba(219,154,68,0.05); }
+
+  .technique{ font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--text-dim); }
+  .detail{ font-size:14px; color:var(--text); margin-top:3px; }
+  .reason{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    color:var(--text-faint);
+    margin-top:8px;
+    min-height:14px;
+  }
+  .tags{ display:flex; gap:6px; margin-top:9px; }
+  .tag{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:10px;
+    letter-spacing:.03em;
+    padding:2px 7px;
+    border-radius:4px;
+    border:1px solid var(--border);
+    color:var(--text-faint);
+    transition:all .25s ease;
+  }
+  .tag.flagged{ border-color:var(--amber); color:var(--amber); }
+  .tag.clear{ border-color:var(--quiet); color:var(--quiet); }
+
+  .verdict{ text-align:right; min-width:140px; }
+  .stamp{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    font-weight:600;
+    letter-spacing:.05em;
+    padding:5px 11px;
+    border-radius:5px;
+    display:inline-block;
+    opacity:0;
+    transform:scale(.9);
+    transition:all .25s ease;
+  }
+  .stamp.show{ opacity:1; transform:scale(1); }
+  .stamp.suppressed{ background:rgba(90,104,132,0.15); color:var(--quiet); border:1px solid var(--quiet); }
+  .stamp.escalated{ background:var(--amber-dim); color:var(--amber); border:1px solid var(--amber); }
+
+  .stats{
+    display:grid;
+    grid-template-columns:repeat(3,1fr);
+    gap:24px;
+    opacity:0;
+    transition:opacity .6s ease;
+  }
+  .stats.show{ opacity:1; }
+  .stat .n{ font-family:'IBM Plex Mono',monospace; font-size:30px; font-weight:600; }
+  .stat.precision .n{ color:var(--teal); }
+  .stat .l{ font-size:12px; color:var(--text-dim); margin-top:6px; }
+  .footnote{
+    grid-column:1 / -1;
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    color:var(--text-faint);
+    line-height:1.7;
+    margin-top:12px;
+    padding-top:20px;
+    border-top:1px solid var(--border);
+  }
+
+  .cta{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    flex-wrap:wrap;
+    gap:20px;
+    opacity:0;
+    transition:opacity .6s ease;
+  }
+  .cta.show{ opacity:1; }
+  .cta p{ font-size:15px; color:var(--text-dim); max-width:42ch; margin:0; }
+  .cta a.btn{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:13px;
+    color:var(--bg);
+    background:var(--text);
+    padding:12px 22px;
+    border-radius:6px;
+    text-decoration:none;
+    font-weight:600;
+    white-space:nowrap;
+  }
+
+  @media (max-width:640px){
+    .row{ grid-template-columns:1fr; }
+    .verdict{ text-align:left; margin-top:4px; }
+    .stats{ grid-template-columns:1fr; }
+  }
+  @media (prefers-reduced-motion: reduce){
+    *{ transition-duration:0.01ms !important; animation-duration:0.01ms !important; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="brand-bar"><a href="./">&larr; GNOSTYX</a></div>
+  <div class="eyebrow">Sample walkthrough &middot; synthetic kill-chain data (ATT&amp;CK-mapped)</div>
+  <h1>Most alerts don&rsquo;t need a human.</h1>
+  <p class="subhead">This is a look at how Gnostyx triages a raw alert stream — sorting the noise from the handful of things an analyst actually needs to see.</p>
+
+  <div class="panel">
+    <div class="ledger-head">
+      <div class="counter-group">
+        <div class="counter"><div class="n" id="count-remaining">12</div><div class="l">Raw queue</div></div>
+        <div class="counter"><div class="n" id="count-suppressed">0</div><div class="l">Suppressed</div></div>
+        <div class="counter escalated"><div class="n" id="count-escalated">0</div><div class="l">Needs review</div></div>
+      </div>
+      <button class="replay-btn" id="replay">&#8635; Replay</button>
+    </div>
+    <div class="ledger" id="ledger"></div>
+  </div>
+
+  <div class="panel stats" id="stats">
+    <div class="stat"><div class="n">35%</div><div class="l">Suppressed, validated holdout</div></div>
+    <div class="stat precision"><div class="n">99.7%</div><div class="l">Precision, suppressed tier</div></div>
+    <div class="stat"><div class="n">2%</div><div class="l">False-negative rate</div></div>
+    <div class="footnote">The stream above is an illustrative sample built on synthetic, ATT&amp;CK-mapped kill-chain data — not live customer telemetry, and not the same ratio as the stats above. The three numbers here are Gnostyx's actual validated holdout results. Current suppression is 35%, with 50&ndash;80% targeted as upcoming behavioral features (entity history, burst detection) roll out.</div>
+  </div>
+
+  <div class="panel cta" id="cta">
+    <p>Curious what this looks like on your own alert volume?</p>
+    <a class="btn" href="index.html#contact">Request pilot access &rarr;</a>
+  </div>
+</div>
+
+<script>
+const ALERTS = [
+  { technique:"T1595 — Active Scanning", detail:"Internal port sweep originating from print-server-03", tags:{IF:false,OCSVM:false,MAH:false,ENT:false}, verdict:"suppressed", reason:"cleared — recurring vuln-scan cadence, whitelisted source" },
+  { technique:"T1071.001 — Web Protocol C2", detail:"Periodic outbound beacon to 185.220.101.x, 60s interval", tags:{IF:false,OCSVM:false,MAH:true,ENT:true}, verdict:"escalated", reason:"flagged — entity deviation, first-seen destination" },
+  { technique:"T1110 — Brute Force", detail:"47 failed logins against svc-backup01", tags:{IF:false,OCSVM:false,MAH:false,ENT:false}, verdict:"suppressed", reason:"cleared — matches scheduled backup-job baseline" },
+  { technique:"T1078 — Valid Accounts", detail:"After-hours login for jsmith, new geography (Lagos, NG)", tags:{IF:true,OCSVM:false,MAH:true,ENT:false}, verdict:"escalated", reason:"flagged — impossible travel, entity novelty" },
+  { technique:"T1059.001 — PowerShell", detail:"Base64 EncodedCommand flag on host-ADMIN-07", tags:{IF:false,OCSVM:false,MAH:false,ENT:true}, verdict:"suppressed", reason:"cleared — known admin script signature" },
+  { technique:"T1003.001 — LSASS Memory Access", detail:"Credential dumping attempt on DC-02", tags:{IF:true,OCSVM:true,MAH:true,ENT:true}, verdict:"escalated", reason:"flagged — high confidence across all four detectors" },
+  { technique:"T1548.002 — UAC Bypass", detail:"Elevation attempt on host-DEV-42", tags:{IF:false,OCSVM:false,MAH:false,ENT:true}, verdict:"suppressed", reason:"cleared — dev sandbox baseline behavior" },
+  { technique:"T1021.001 — RDP", detail:"Lateral movement into finance subnet from host-77", tags:{IF:false,OCSVM:true,MAH:true,ENT:true}, verdict:"escalated", reason:"flagged — fan-out anomaly, first-seen combination" },
+  { technique:"T1055 — Process Injection", detail:"Injection pattern flagged on svc-monitor", tags:{IF:false,OCSVM:false,MAH:false,ENT:false}, verdict:"suppressed", reason:"cleared — known EDR agent behavior" },
+  { technique:"T1486 — Data Encrypted for Impact", detail:"Mass file rewrite rate spike, file-share-03", tags:{IF:true,OCSVM:true,MAH:true,ENT:true}, verdict:"escalated", reason:"flagged — critical, routed immediately" },
+  { technique:"T1136 — Account Creation", detail:"New admin account created after-hours by IT-admin02", tags:{IF:false,OCSVM:false,MAH:false,ENT:false}, verdict:"suppressed", reason:"cleared — correlated with approved change window" },
+  { technique:"T1046 — Network Service Scanning", detail:"Scan pattern from guest VLAN, low-value hosts", tags:{IF:false,OCSVM:false,MAH:false,ENT:false}, verdict:"suppressed", reason:"cleared — recurring low-risk pattern" }
+];
+
+const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const delay = ms => new Promise(r => setTimeout(r, reduced ? Math.min(ms,20) : ms));
+
+const ledger = document.getElementById('ledger');
+const elRemaining = document.getElementById('count-remaining');
+const elSuppressed = document.getElementById('count-suppressed');
+const elEscalated = document.getElementById('count-escalated');
+const elStats = document.getElementById('stats');
+const elCta = document.getElementById('cta');
+const replayBtn = document.getElementById('replay');
+
+let running = false;
+
+function buildRow(alert){
+  const row = document.createElement('div');
+  row.className = 'row';
+
+  const left = document.createElement('div');
+  const technique = document.createElement('div');
+  technique.className = 'technique';
+  technique.textContent = alert.technique;
+  const detail = document.createElement('div');
+  detail.className = 'detail';
+  detail.textContent = alert.detail;
+  const tagsWrap = document.createElement('div');
+  tagsWrap.className = 'tags';
+  const tagEls = {};
+  Object.keys(alert.tags).forEach(name => {
+    const t = document.createElement('span');
+    t.className = 'tag';
+    t.textContent = name;
+    tagsWrap.appendChild(t);
+    tagEls[name] = t;
+  });
+  const reason = document.createElement('div');
+  reason.className = 'reason';
+
+  left.appendChild(technique);
+  left.appendChild(detail);
+  left.appendChild(tagsWrap);
+  left.appendChild(reason);
+
+  const right = document.createElement('div');
+  right.className = 'verdict';
+  const stamp = document.createElement('span');
+  stamp.className = 'stamp';
+  right.appendChild(stamp);
+
+  row.appendChild(left);
+  row.appendChild(right);
+
+  return { row, tagEls, reason, stamp };
+}
+
+async function runSequence(){
+  if(running) return;
+  running = true;
+  replayBtn.disabled = true;
+
+  ledger.innerHTML = '';
+  elRemaining.textContent = ALERTS.length;
+  elSuppressed.textContent = '0';
+  elEscalated.textContent = '0';
+  elStats.classList.remove('show');
+  elCta.classList.remove('show');
+
+  let suppressedCount = 0;
+  let escalatedCount = 0;
+
+  for(const alert of ALERTS){
+    const { row, tagEls, reason, stamp } = buildRow(alert);
+    ledger.appendChild(row);
+    await delay(20);
+    row.classList.add('show');
+    await delay(280);
+
+    for(const [name, flagged] of Object.entries(alert.tags)){
+      tagEls[name].classList.add(flagged ? 'flagged' : 'clear');
+      await delay(110);
+    }
+
+    await delay(150);
+    reason.textContent = alert.reason;
+    stamp.textContent = alert.verdict === 'suppressed' ? 'SUPPRESSED' : 'ESCALATED';
+    stamp.classList.add(alert.verdict, 'show');
+    row.classList.add(alert.verdict === 'suppressed' ? 'resolved-suppressed' : 'resolved-escalated');
+
+    if(alert.verdict === 'suppressed'){ suppressedCount++; elSuppressed.textContent = suppressedCount; }
+    else { escalatedCount++; elEscalated.textContent = escalatedCount; }
+    elRemaining.textContent = ALERTS.length - suppressedCount - escalatedCount;
+
+    await delay(420);
+  }
+
+  await delay(300);
+  elStats.classList.add('show');
+  await delay(500);
+  elCta.classList.add('show');
+
+  running = false;
+  replayBtn.disabled = false;
+}
+
+replayBtn.addEventListener('click', runSequence);
+window.addEventListener('load', () => delay(400).then(runSequence));
+</script>
+</body>
+</html>
