@@ -5,265 +5,138 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Gnostyx — Alert Triage Walkthrough</title>
 <meta name="description" content="See how Gnostyx triages a raw alert stream in real time — sorting the noise from the handful of things an analyst actually needs to see.">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+    tailwind.config = {
+        theme: {
+            extend: {
+                colors: {
+                    brand: {
+                        50:  '#eff6ff',
+                        100: '#dbeafe',
+                        200: '#bfdbfe',
+                        300: '#93c5fd',
+                        400: '#60a5fa',
+                        500: '#3b82f6',
+                        600: '#2563eb',
+                        700: '#1d4ed8',
+                        800: '#1e40af',
+                        900: '#1e3a8a',
+                        950: '#172554',
+                    },
+                },
+            }
+        }
+    }
+</script>
 <style>
-  :root{
-    --bg:#0B0F16;
-    --panel:#111826;
-    --panel-2:#0E1420;
-    --border:#212A3C;
-    --text:#E7ECF6;
-    --text-dim:#8993A8;
-    --text-faint:#525D73;
-    --quiet:#5A6884;
-    --amber:#DB9A44;
-    --amber-dim:rgba(219,154,68,0.10);
-    --teal:#5FC1A0;
-    --radius:10px;
-  }
-  *{box-sizing:border-box;}
-  body{
-    margin:0;
-    background:var(--bg);
-    color:var(--text);
-    font-family:'Inter',sans-serif;
-    -webkit-font-smoothing:antialiased;
-  }
-  .container{
-    max-width:880px;
-    margin:0 auto;
-    padding:64px 24px 96px;
-  }
-  .brand-bar{ margin-bottom:36px; }
-  .brand-bar a{
-    font-family:'IBM Plex Mono',monospace;
-    font-size:13px;
-    letter-spacing:.18em;
-    color:var(--text-faint);
-    text-decoration:none;
-    transition:color .15s ease;
-  }
-  .brand-bar a:hover{ color:var(--text-dim); }
-  .eyebrow{
-    font-family:'IBM Plex Mono',monospace;
-    font-size:11px;
-    letter-spacing:.1em;
-    text-transform:uppercase;
-    color:var(--text-faint);
-    border:1px solid var(--border);
-    display:inline-block;
-    padding:6px 12px;
-    border-radius:999px;
-    margin-bottom:28px;
-  }
-  h1{
-    font-family:'Space Grotesk',sans-serif;
-    font-weight:600;
-    font-size:clamp(30px,5vw,46px);
-    line-height:1.1;
-    letter-spacing:-0.01em;
-    margin:0 0 14px;
-  }
-  .subhead{
-    font-size:17px;
-    color:var(--text-dim);
-    max-width:50ch;
-    line-height:1.55;
-    margin:0 0 48px;
-  }
-  .panel{
-    background:var(--panel);
-    border:1px solid var(--border);
-    border-radius:var(--radius);
-    padding:28px;
-    margin-bottom:20px;
-  }
-  .ledger-head{
-    display:flex;
-    justify-content:space-between;
-    align-items:center;
-    flex-wrap:wrap;
-    gap:16px;
-    margin-bottom:22px;
-    padding-bottom:20px;
-    border-bottom:1px solid var(--border);
-  }
-  .counter-group{ display:flex; gap:32px; flex-wrap:wrap; }
-  .counter .n{
-    font-family:'IBM Plex Mono',monospace;
-    font-size:26px;
-    font-weight:600;
-    color:var(--text);
-    line-height:1;
-  }
-  .counter.escalated .n{ color:var(--amber); }
-  .counter .l{
-    font-family:'IBM Plex Mono',monospace;
-    font-size:10px;
-    text-transform:uppercase;
-    letter-spacing:.08em;
-    color:var(--text-faint);
-    margin-top:6px;
-  }
-  .replay-btn{
-    font-family:'IBM Plex Mono',monospace;
-    font-size:12px;
-    background:transparent;
-    border:1px solid var(--border);
-    color:var(--text-dim);
-    padding:9px 16px;
-    border-radius:6px;
-    cursor:pointer;
-    transition:border-color .15s, color .15s;
-  }
-  .replay-btn:hover{ border-color:var(--quiet); color:var(--text); }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
-  .ledger{ display:flex; flex-direction:column; gap:8px; }
-  .row{
-    display:grid;
-    grid-template-columns:1fr auto;
-    gap:16px;
-    align-items:center;
-    padding:14px 16px;
-    border:1px solid var(--border);
-    border-left:3px solid transparent;
-    border-radius:8px;
-    background:var(--panel-2);
-    opacity:0;
-    transform:translateY(6px);
-    transition:opacity .4s ease, transform .4s ease, border-color .3s ease, background-color .3s ease;
-  }
-  .row.show{ opacity:1; transform:translateY(0); }
-  .row.resolved-suppressed{ opacity:.5; border-left-color:var(--quiet); }
-  .row.resolved-escalated{ border-left-color:var(--amber); background:rgba(219,154,68,0.05); }
+    body { font-family: 'Inter', sans-serif; }
 
-  .technique{ font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--text-dim); }
-  .detail{ font-size:14px; color:var(--text); margin-top:3px; }
-  .reason{
-    font-family:'IBM Plex Mono',monospace;
-    font-size:11px;
-    color:var(--text-faint);
-    margin-top:8px;
-    min-height:14px;
-  }
-  .tags{ display:flex; gap:6px; margin-top:9px; }
-  .tag{
-    font-family:'IBM Plex Mono',monospace;
-    font-size:10px;
-    letter-spacing:.03em;
-    padding:2px 7px;
-    border-radius:4px;
-    border:1px solid var(--border);
-    color:var(--text-faint);
-    transition:all .25s ease;
-  }
-  .tag.flagged{ border-color:var(--amber); color:var(--amber); }
-  .tag.clear{ border-color:var(--quiet); color:var(--quiet); }
+    /* Custom scrollbar */
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #020617; }
+    ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #334155; }
 
-  .verdict{ text-align:right; min-width:140px; }
-  .stamp{
-    font-family:'IBM Plex Mono',monospace;
-    font-size:11px;
-    font-weight:600;
-    letter-spacing:.05em;
-    padding:5px 11px;
-    border-radius:5px;
-    display:inline-block;
-    opacity:0;
-    transform:scale(.9);
-    transition:all .25s ease;
-  }
-  .stamp.show{ opacity:1; transform:scale(1); }
-  .stamp.suppressed{ background:rgba(90,104,132,0.15); color:var(--quiet); border:1px solid var(--quiet); }
-  .stamp.escalated{ background:var(--amber-dim); color:var(--amber); border:1px solid var(--amber); }
+    /* Subtle grid background, matches hero section */
+    .grid-bg {
+        background-image:
+            linear-gradient(rgba(59,130,246,0.04) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(59,130,246,0.04) 1px, transparent 1px);
+        background-size: 40px 40px;
+    }
 
-  .stats{
-    display:grid;
-    grid-template-columns:repeat(3,1fr);
-    gap:24px;
-    opacity:0;
-    transition:opacity .6s ease;
-  }
-  .stats.show{ opacity:1; }
-  .stat .n{ font-family:'IBM Plex Mono',monospace; font-size:30px; font-weight:600; }
-  .stat.precision .n{ color:var(--teal); }
-  .stat .l{ font-size:12px; color:var(--text-dim); margin-top:6px; }
-  .footnote{
-    grid-column:1 / -1;
-    font-family:'IBM Plex Mono',monospace;
-    font-size:11px;
-    color:var(--text-faint);
-    line-height:1.7;
-    margin-top:12px;
-    padding-top:20px;
-    border-top:1px solid var(--border);
-  }
+    .alert-row { transition-property: opacity, transform, background-color, border-color; }
 
-  .cta{
-    display:flex;
-    justify-content:space-between;
-    align-items:center;
-    flex-wrap:wrap;
-    gap:20px;
-    opacity:0;
-    transition:opacity .6s ease;
-  }
-  .cta.show{ opacity:1; }
-  .cta p{ font-size:15px; color:var(--text-dim); max-width:42ch; margin:0; }
-  .cta a.btn{
-    font-family:'IBM Plex Mono',monospace;
-    font-size:13px;
-    color:var(--bg);
-    background:var(--text);
-    padding:12px 22px;
-    border-radius:6px;
-    text-decoration:none;
-    font-weight:600;
-    white-space:nowrap;
-  }
-
-  @media (max-width:640px){
-    .row{ grid-template-columns:1fr; }
-    .verdict{ text-align:left; margin-top:4px; }
-    .stats{ grid-template-columns:1fr; }
-  }
-  @media (prefers-reduced-motion: reduce){
-    *{ transition-duration:0.01ms !important; animation-duration:0.01ms !important; }
-  }
+    @media (prefers-reduced-motion: reduce){
+        *{ transition-duration:0.01ms !important; animation-duration:0.01ms !important; }
+    }
 </style>
 </head>
-<body>
-<div class="container">
-  <div class="brand-bar"><a href="./">&larr; GNOSTYX</a></div>
-  <div class="eyebrow">Sample walkthrough &middot; synthetic kill-chain data (ATT&amp;CK-mapped)</div>
-  <h1>Most alerts don&rsquo;t need a human.</h1>
-  <p class="subhead">This is a look at how Gnostyx triages a raw alert stream — sorting the noise from the handful of things an analyst actually needs to see.</p>
+<body class="bg-slate-950 text-slate-50 antialiased selection:bg-brand-500/30">
 
-  <div class="panel">
-    <div class="ledger-head">
-      <div class="counter-group">
-        <div class="counter"><div class="n" id="count-remaining">12</div><div class="l">Raw queue</div></div>
-        <div class="counter"><div class="n" id="count-suppressed">0</div><div class="l">Suppressed</div></div>
-        <div class="counter escalated"><div class="n" id="count-escalated">0</div><div class="l">Needs review</div></div>
-      </div>
-      <button class="replay-btn" id="replay">&#8635; Replay</button>
+<!-- ═══════════════════════════════ TOP BAR ═══════════════════════════════ -->
+<div class="border-b border-slate-800 bg-slate-950/80 backdrop-blur-md sticky top-0 z-50">
+    <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="flex justify-between items-center h-16">
+            <a href="index.html" class="flex-shrink-0 font-bold text-xl text-white tracking-tight flex items-center gap-2">
+                <div class="w-7 h-7 bg-brand-600 rounded-lg flex items-center justify-center shadow-lg shadow-brand-900/40">
+                    <svg class="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.955 11.955 0 01.75 12c0 6.003 5.21 10.5 11.25 10.5S23.25 18.003 23.25 12c0-2.225-.61-4.31-1.673-6.09" />
+                    </svg>
+                </div>
+                Gnostyx
+            </a>
+            <a href="index.html" class="px-3 py-2 rounded-md text-sm font-medium text-slate-400 hover:text-brand-400 transition-colors">&larr; Back to site</a>
+        </div>
     </div>
-    <div class="ledger" id="ledger"></div>
-  </div>
+</div>
 
-  <div class="panel stats" id="stats">
-    <div class="stat"><div class="n">35%</div><div class="l">Suppressed, validated holdout</div></div>
-    <div class="stat precision"><div class="n">99.7%</div><div class="l">Precision, suppressed tier</div></div>
-    <div class="stat"><div class="n">2%</div><div class="l">False-negative rate</div></div>
-    <div class="footnote">The stream above is an illustrative sample built on synthetic, ATT&amp;CK-mapped kill-chain data — not live customer telemetry, and not the same ratio as the stats above. The three numbers here are Gnostyx's actual validated holdout results. Current suppression is 35%, with 50&ndash;80% targeted as upcoming behavioral features (entity history, burst detection) roll out.</div>
-  </div>
+<!-- ═══════════════════════════════ INTRO ═══════════════════════════════ -->
+<div class="grid-bg">
+    <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pt-16 pb-10 sm:pt-20 sm:pb-12">
+        <span class="inline-flex items-center px-3 py-1 rounded-full bg-slate-900 border border-slate-800 text-slate-500 text-xs font-semibold uppercase tracking-wider mb-6">
+            Sample walkthrough &middot; synthetic kill-chain data (ATT&amp;CK-mapped)
+        </span>
+        <h1 class="text-4xl sm:text-5xl font-bold tracking-tight text-white mb-4 leading-tight">Most alerts don&rsquo;t need a human.</h1>
+        <p class="text-xl text-slate-400 max-w-2xl">This is a look at how Gnostyx triages a raw alert stream — sorting the noise from the handful of things an analyst actually needs to see.</p>
+    </div>
+</div>
 
-  <div class="panel cta" id="cta">
-    <p>Curious what this looks like on your own alert volume?</p>
-    <a class="btn" href="index.html#contact">Request pilot access &rarr;</a>
-  </div>
+<!-- ═══════════════════════════════ LEDGER + STATS + CTA ═══════════════════════════════ -->
+<div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pb-24">
+
+    <!-- Ledger panel -->
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8 mb-6">
+        <div class="flex flex-wrap items-center justify-between gap-4 pb-5 mb-5 border-b border-slate-800">
+            <div class="flex gap-8 flex-wrap">
+                <div>
+                    <div id="count-remaining" class="text-2xl font-bold text-white">12</div>
+                    <div class="text-xs font-semibold uppercase tracking-wider text-slate-500 mt-1">Raw queue</div>
+                </div>
+                <div>
+                    <div id="count-suppressed" class="text-2xl font-bold text-slate-400">0</div>
+                    <div class="text-xs font-semibold uppercase tracking-wider text-slate-500 mt-1">Suppressed</div>
+                </div>
+                <div>
+                    <div id="count-escalated" class="text-2xl font-bold text-yellow-400">0</div>
+                    <div class="text-xs font-semibold uppercase tracking-wider text-slate-500 mt-1">Needs review</div>
+                </div>
+            </div>
+            <button id="replay" class="px-4 py-2 rounded-full bg-slate-900 text-slate-300 border border-slate-700 text-sm font-semibold hover:bg-slate-800 hover:text-white transition-all">&#8635; Replay</button>
+        </div>
+        <div id="ledger" class="flex flex-col gap-2"></div>
+    </div>
+
+    <!-- Stats panel -->
+    <div id="stats" class="bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8 mb-6 opacity-0 transition-opacity duration-700">
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-6 text-center">
+            <div>
+                <div class="text-2xl sm:text-3xl font-bold text-white">35%</div>
+                <div class="text-sm text-slate-400 mt-1">Suppressed, validated holdout</div>
+            </div>
+            <div>
+                <div class="text-2xl sm:text-3xl font-bold text-green-400">99.7%</div>
+                <div class="text-sm text-slate-400 mt-1">Precision, suppressed tier</div>
+            </div>
+            <div>
+                <div class="text-2xl sm:text-3xl font-bold text-white">2%</div>
+                <div class="text-sm text-slate-400 mt-1">False-negative rate</div>
+            </div>
+        </div>
+        <p class="text-xs text-slate-500 leading-relaxed mt-6 pt-5 border-t border-slate-800">
+            The stream above is an illustrative sample built on synthetic, ATT&amp;CK-mapped kill-chain data — not live customer telemetry, and not the same ratio as the stats above. The three numbers here are Gnostyx's actual validated holdout results. Current suppression is 35%, with 50&ndash;80% targeted as upcoming behavioral features (entity history, burst detection) roll out.
+        </p>
+    </div>
+
+    <!-- CTA panel -->
+    <div id="cta" class="bg-slate-900 border border-brand-500/20 rounded-2xl p-6 sm:p-8 flex flex-wrap items-center justify-between gap-5 opacity-0 transition-opacity duration-700">
+        <p class="text-slate-300 max-w-md">Curious what this looks like on your own alert volume?</p>
+        <a href="index.html#contact" class="flex-none px-6 py-3 rounded-full bg-brand-600 text-white font-semibold text-sm hover:bg-brand-500 transition-all shadow-lg shadow-brand-900/40 hover:shadow-brand-900/60 hover:-translate-y-0.5 whitespace-nowrap">Request pilot access &rarr;</a>
+    </div>
+
 </div>
 
 <script>
@@ -293,31 +166,40 @@ const elStats = document.getElementById('stats');
 const elCta = document.getElementById('cta');
 const replayBtn = document.getElementById('replay');
 
+const ROW_BASE_CLASSES = 'alert-row flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 p-4 rounded-lg border border-slate-800 bg-slate-900/50 opacity-0 -translate-y-1 duration-300 ease-out hover:translate-x-1';
+const TAG_BASE_CLASSES = 'text-[10px] font-mono tracking-wide px-2 py-0.5 rounded border border-slate-700 text-slate-600 transition-all duration-300';
+const STAMP_BASE_CLASSES = 'text-[11px] font-semibold uppercase tracking-wide px-2.5 py-1 rounded-full border inline-block opacity-0 scale-95 transition-all duration-300';
+
 let running = false;
 
 function buildRow(alert){
   const row = document.createElement('div');
-  row.className = 'row';
+  row.className = ROW_BASE_CLASSES;
 
   const left = document.createElement('div');
+  left.className = 'flex-1 min-w-0';
+
   const technique = document.createElement('div');
-  technique.className = 'technique';
+  technique.className = 'text-xs font-mono uppercase tracking-wide text-slate-500';
   technique.textContent = alert.technique;
+
   const detail = document.createElement('div');
-  detail.className = 'detail';
+  detail.className = 'text-sm font-medium text-slate-100 mt-0.5 transition-colors duration-300';
   detail.textContent = alert.detail;
+
   const tagsWrap = document.createElement('div');
-  tagsWrap.className = 'tags';
+  tagsWrap.className = 'flex flex-wrap gap-1.5 mt-2.5';
   const tagEls = {};
   Object.keys(alert.tags).forEach(name => {
     const t = document.createElement('span');
-    t.className = 'tag';
+    t.className = TAG_BASE_CLASSES;
     t.textContent = name;
     tagsWrap.appendChild(t);
     tagEls[name] = t;
   });
+
   const reason = document.createElement('div');
-  reason.className = 'reason';
+  reason.className = 'text-xs font-mono text-slate-500 mt-2 min-h-[14px]';
 
   left.appendChild(technique);
   left.appendChild(detail);
@@ -325,15 +207,15 @@ function buildRow(alert){
   left.appendChild(reason);
 
   const right = document.createElement('div');
-  right.className = 'verdict';
+  right.className = 'flex-shrink-0';
   const stamp = document.createElement('span');
-  stamp.className = 'stamp';
+  stamp.className = STAMP_BASE_CLASSES;
   right.appendChild(stamp);
 
   row.appendChild(left);
   row.appendChild(right);
 
-  return { row, tagEls, reason, stamp };
+  return { row, detail, tagEls, reason, stamp };
 }
 
 async function runSequence(){
@@ -345,41 +227,60 @@ async function runSequence(){
   elRemaining.textContent = ALERTS.length;
   elSuppressed.textContent = '0';
   elEscalated.textContent = '0';
-  elStats.classList.remove('show');
-  elCta.classList.remove('show');
+  elStats.classList.remove('opacity-100');
+  elStats.classList.add('opacity-0');
+  elCta.classList.remove('opacity-100');
+  elCta.classList.add('opacity-0');
 
   let suppressedCount = 0;
   let escalatedCount = 0;
 
   for(const alert of ALERTS){
-    const { row, tagEls, reason, stamp } = buildRow(alert);
+    const { row, detail, tagEls, reason, stamp } = buildRow(alert);
     ledger.appendChild(row);
     await delay(20);
-    row.classList.add('show');
+    row.classList.remove('opacity-0', '-translate-y-1');
+    row.classList.add('opacity-100', 'translate-y-0');
     await delay(280);
 
     for(const [name, flagged] of Object.entries(alert.tags)){
-      tagEls[name].classList.add(flagged ? 'flagged' : 'clear');
+      if(flagged){
+        tagEls[name].classList.remove('border-slate-700', 'text-slate-600');
+        tagEls[name].classList.add('border-yellow-500/40', 'text-yellow-400', 'bg-yellow-500/10');
+      } else {
+        tagEls[name].classList.add('text-slate-700');
+      }
       await delay(110);
     }
 
     await delay(150);
     reason.textContent = alert.reason;
     stamp.textContent = alert.verdict === 'suppressed' ? 'SUPPRESSED' : 'ESCALATED';
-    stamp.classList.add(alert.verdict, 'show');
-    row.classList.add(alert.verdict === 'suppressed' ? 'resolved-suppressed' : 'resolved-escalated');
+    stamp.classList.remove('opacity-0', 'scale-95');
+    stamp.classList.add('opacity-100', 'scale-100');
 
-    if(alert.verdict === 'suppressed'){ suppressedCount++; elSuppressed.textContent = suppressedCount; }
-    else { escalatedCount++; elEscalated.textContent = escalatedCount; }
+    row.classList.remove('border-slate-800', 'bg-slate-900/50');
+    if(alert.verdict === 'suppressed'){
+      stamp.classList.add('bg-slate-800', 'text-slate-500', 'border-slate-700');
+      row.classList.add('border-slate-800', 'opacity-40', 'hover:opacity-60');
+      detail.classList.add('line-through', 'text-slate-500');
+      suppressedCount++; elSuppressed.textContent = suppressedCount;
+    } else {
+      stamp.classList.add('bg-yellow-500/10', 'text-yellow-400', 'border-yellow-500/20');
+      row.classList.add('border-yellow-500/20', 'bg-yellow-500/5', 'hover:border-yellow-500/40');
+      escalatedCount++; elEscalated.textContent = escalatedCount;
+    }
     elRemaining.textContent = ALERTS.length - suppressedCount - escalatedCount;
 
     await delay(420);
   }
 
   await delay(300);
-  elStats.classList.add('show');
+  elStats.classList.remove('opacity-0');
+  elStats.classList.add('opacity-100');
   await delay(500);
-  elCta.classList.add('show');
+  elCta.classList.remove('opacity-0');
+  elCta.classList.add('opacity-100');
 
   running = false;
   replayBtn.disabled = false;
